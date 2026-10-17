@@ -1,0 +1,38 @@
+{
+  "name": "media-server",
+  "version": "1.0.0",
+  "description": "Spotify playlist parser, multi-source audio downloader, full metadata embedder for Navidrome",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "media-server": "./bin/cli.js",
+    "ms-music": "./bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "spotify",
+    "downloader",
+    "navidrome",
+    "metadata",
+    "lyrics",
+    "ytm",
+    "netease",
+    "cli"
+  ],
+  "author": "suki",
+  "license": "GPL-3.0-or-later",
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.1.0",
+    "inquirer": "^12.4.2",
+    "music-metadata": "^10.8.2",
+    "NeteaseCloudMusicApi": "^4.32.0",
+    "node-id3": "^0.2.9",
+    "ora": "^8.2.0",
+    "spotify-url-info": "^3.3.3"
+  }
+}
