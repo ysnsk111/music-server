@@ -6,8 +6,10 @@ import path from 'path';
 import { createRequire } from 'module';
 import { processTrack } from '../services/downloader.js';
 import { logger } from '../utils/logger.js';
+import { getMusicStats, renderStatsHtml } from './stats.js';
 
 const require = createRequire(import.meta.url);
+const WRAPPED_DIR = '/home/suki/project/navidrome-wrapped';
 let neteaseCloud = null;
 let unmMatch = null;
 
@@ -560,6 +562,56 @@ async function handleSubsonicGetSong(req, res, parsedUrl) {
   req.pipe(upReq);
 }
 
+const STATIC_MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf'
+};
+
+function serveWrappedStatic(req, res, pathname) {
+  if (pathname === '/wrapped') {
+    res.writeHead(301, { Location: '/wrapped/' });
+    return res.end();
+  }
+
+  let relPath = pathname.replace(/^\/wrapped\/?/, '');
+  if (!relPath || relPath === '/') {
+    relPath = 'index.html';
+  }
+
+  const filePath = path.resolve(WRAPPED_DIR, relPath);
+  if (!filePath.startsWith(WRAPPED_DIR)) {
+    res.writeHead(403);
+    return res.end('Forbidden');
+  }
+
+  fs.stat(filePath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      res.writeHead(404);
+      return res.end('Not Found');
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = STATIC_MIME_TYPES[ext] || 'application/octet-stream';
+    res.writeHead(200, {
+      'content-type': contentType,
+      'content-length': stats.size,
+      'cache-control': 'public, max-age=3600'
+    });
+    fs.createReadStream(filePath).pipe(res);
+  });
+}
+
 /**
  * Main HTTP Server
  */
@@ -567,34 +619,56 @@ const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname || '';
 
-  // 1. Subsonic Search
+  // 1. Listening Statistics & Report Dashboard
+  if (pathname === '/stats' || pathname === '/report') {
+    const user = parsedUrl.query.user || 'jake';
+    const html = renderStatsHtml(user);
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
+
+  // 2. Music Stats JSON API
+  if (pathname === '/api/stats') {
+    const user = parsedUrl.query.user || 'jake';
+    const days = parseInt(parsedUrl.query.days || '0', 10);
+    const data = getMusicStats(user, days);
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify(data));
+  }
+
+  // 3. Navidrome Wrapped Static App
+  if (pathname === '/wrapped' || pathname.startsWith('/wrapped/')) {
+    return serveWrappedStatic(req, res, pathname);
+  }
+
+  // 4. Subsonic Search
   if (pathname.endsWith('/rest/search3.view') || pathname.endsWith('/rest/search3') ||
       pathname.endsWith('/rest/search2.view') || pathname.endsWith('/rest/search2')) {
     return handleSubsonicSearch(req, res, parsedUrl);
   }
 
-  // 2. Navidrome Web UI native search
+  // 5. Navidrome Web UI native search
   if (pathname === '/api/search') {
     return handleNavidromeApiSearch(req, res, parsedUrl);
   }
 
-  // 3. Audio Stream
+  // 6. Audio Stream
   if (pathname.endsWith('/rest/stream.view') || pathname.endsWith('/rest/stream') ||
       pathname.match(/\/api\/song\/online_ne_.*\/stream/)) {
     return handleSubsonicStream(req, res, parsedUrl);
   }
 
-  // 4. Subsonic Cover Art
+  // 7. Subsonic Cover Art
   if (pathname.endsWith('/rest/getCoverArt.view') || pathname.endsWith('/rest/getCoverArt')) {
     return handleSubsonicCover(req, res, parsedUrl);
   }
 
-  // 5. Subsonic getSong
+  // 8. Subsonic getSong
   if (pathname.endsWith('/rest/getSong.view') || pathname.endsWith('/rest/getSong')) {
     return handleSubsonicGetSong(req, res, parsedUrl);
   }
 
-  // 6. All other requests: transparent upstream proxy to Navidrome
+  // 9. All other requests: transparent upstream proxy to Navidrome
   const upstreamUrl = `http://127.0.0.1:${NAVIS_UPSTREAM_PORT}${req.url}`;
   const upReq = http.request(upstreamUrl, {
     method: req.method,
