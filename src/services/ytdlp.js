@@ -113,10 +113,15 @@ export async function downloadWithYtDlp({
 
   try {
     const downloadedFile = await runYtDlp(ytArgs, outputDir, tmpPrefix, format, onProgress);
+    const dur = await checkDuration(downloadedFile);
+    if (dur < 60) {
+      try { fs.unlinkSync(downloadedFile); } catch (_) {}
+      throw new Error(`YouTube stream duration too short (${dur}s)`);
+    }
     return {
       filePath: downloadedFile,
       title: query,
-      duration: 0
+      duration: dur
     };
   } catch (ytErr) {
     // If not a direct URL, fall back to SoundCloud
@@ -130,10 +135,15 @@ export async function downloadWithYtDlp({
 
       try {
         const downloadedFile = await runYtDlp(scArgs, outputDir, tmpPrefix, format, onProgress);
+        const dur = await checkDuration(downloadedFile);
+        if (dur < 60) {
+          try { fs.unlinkSync(downloadedFile); } catch (_) {}
+          throw new Error(`SoundCloud returned preview clip (${dur}s)`);
+        }
         return {
           filePath: downloadedFile,
           title: query,
-          duration: 0
+          duration: dur
         };
       } catch (scErr) {
         throw new Error(`All audio sources failed. YouTube: ${ytErr.message} | SoundCloud: ${scErr.message}`);
@@ -143,3 +153,22 @@ export async function downloadWithYtDlp({
     throw ytErr;
   }
 }
+
+function checkDuration(file) {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      file
+    ]);
+    let out = '';
+    proc.stdout.on('data', d => out += d);
+    proc.on('close', code => {
+      if (code === 0 && out.trim()) resolve(parseFloat(out.trim()) || 0);
+      else resolve(0);
+    });
+    proc.on('error', () => resolve(0));
+  });
+}
+

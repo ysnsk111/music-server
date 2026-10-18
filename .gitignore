@@ -40,6 +40,8 @@ coverage/
 .env.production.local
 cookies.txt
 *.cookie
+youtube_cookies.txt
+cache/
 
 # Operating System files
 .DS_Store

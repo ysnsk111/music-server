@@ -165,6 +165,11 @@ export async function processTrack(trackInput, options = {}) {
     // Save folder cover.jpg if enabled
     if (config.saveCoverFile && coverBuffer) {
       saveFolderCover(targetDir, coverBuffer);
+      const artistDir = path.dirname(targetDir);
+      const artistImg = path.join(artistDir, 'artist.jpg');
+      if (!fs.existsSync(artistImg)) {
+        try { fs.writeFileSync(artistImg, coverBuffer); } catch (_) {}
+      }
     }
 
     onStatus('done', 'Completed successfully');

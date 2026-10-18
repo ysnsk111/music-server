@@ -49,6 +49,19 @@ export function extractComposerFromLyrics(lrc) {
 }
 
 /**
+ * Clean version noise from title for accurate lyrics retrieval
+ * @param {string} title
+ * @returns {string}
+ */
+export function cleanTitleForLyrics(title) {
+  if (!title) return '';
+  return title
+    .replace(/\s*[\(\[][^\)\]]*(?:remaster|deluxe|edition|anniversary|radio edit|original mix|single|version|bonus|live|acoustic)[^\)\]]*[\)\]]/gi, '')
+    .replace(/\s*-\s*(?:remaster|radio edit|deluxe|anniversary|single).*/gi, '')
+    .trim() || title;
+}
+
+/**
  * Fetch lyrics from Kugou Open API
  * @param {string} title
  * @param {string} artist
@@ -56,7 +69,8 @@ export function extractComposerFromLyrics(lrc) {
  */
 export async function getKugouLyrics(title, artist) {
   try {
-    const query = `${artist || ''} ${title}`.trim();
+    const cleanTitle = cleanTitleForLyrics(title);
+    const query = `${artist || ''} ${cleanTitle}`.trim();
     const searchUrl = `http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=${encodeURIComponent(query)}&page=1&pagesize=5&showtype=1`;
     const res = await fetch(searchUrl, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
@@ -94,7 +108,8 @@ export async function getKugouLyrics(title, artist) {
 export async function getNeteaseLyrics(title, artist) {
   if (!neteaseCloud) return null;
   try {
-    const query = `${artist || ''} ${title}`.trim();
+    const cleanTitle = cleanTitleForLyrics(title);
+    const query = `${artist || ''} ${cleanTitle}`.trim();
     const searchRes = await neteaseCloud.cloudsearch({
       keywords: query,
       type: 1,

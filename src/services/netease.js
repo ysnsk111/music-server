@@ -7,12 +7,44 @@ import { getConfig } from '../config.js';
 
 const require = createRequire(import.meta.url);
 let neteaseCloud = null;
+let unmMatch = null;
+
 try {
   neteaseCloud = require('NeteaseCloudMusicApi');
 } catch (_) {}
 
+try {
+  unmMatch = require('@unblockneteasemusic/server');
+} catch (_) {}
+
 /**
- * Search and download audio from Netease Cloud Music with fallback candidates
+ * Get duration of audio file using ffprobe
+ * @param {string} filePath
+ * @returns {Promise<number>}
+ */
+export async function getAudioDuration(filePath) {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ]);
+    let out = '';
+    proc.stdout.on('data', d => out += d);
+    proc.on('close', code => {
+      if (code === 0 && out.trim()) {
+        resolve(parseFloat(out.trim()) || 0);
+      } else {
+        resolve(0);
+      }
+    });
+    proc.on('error', () => resolve(0));
+  });
+}
+
+/**
+ * Search and download audio from Netease Cloud Music with UNM resolution and duration verification
  * @param {string} title
  * @param {string} artist
  * @param {string} format 'mp3' | 'flac'
@@ -39,9 +71,21 @@ export async function downloadWithNetease(title, artist, format = 'mp3') {
     let targetUrl = null;
     let selectedSong = null;
 
-    // Iterate through top search candidates until a playable stream is found
     for (const song of songs) {
       try {
+        // 1. Try UNM match first (pyncmd, bilibili, kugou) for full 320k/lossless tracks
+        if (unmMatch) {
+          try {
+            const matched = await unmMatch(song.id, ['pyncmd', 'bilibili', 'kugou', 'bodian']);
+            if (matched && matched.url && matched.size > 100000) {
+              targetUrl = matched.url;
+              selectedSong = song;
+              break;
+            }
+          } catch (_) {}
+        }
+
+        // 2. Try native song_url_v1
         const level = format === 'flac' ? 'lossless' : 'exhigh';
         const urlRes = await neteaseCloud.song_url_v1({
           id: song.id,
@@ -50,20 +94,22 @@ export async function downloadWithNetease(title, artist, format = 'mp3') {
         });
 
         const url = urlRes.body?.data?.[0]?.url;
-        if (url) {
+        const size = urlRes.body?.data?.[0]?.size || 0;
+        if (url && size > 100000) {
           targetUrl = url;
           selectedSong = song;
           break;
         }
 
-        // Secondary fallback: song_url with bitrate
+        // 3. Fallback to legacy song_url
         const legacyRes = await neteaseCloud.song_url({
           id: song.id,
           br: 320000,
           cookie
         });
         const legacyUrl = legacyRes.body?.data?.[0]?.url;
-        if (legacyUrl) {
+        const legacySize = legacyRes.body?.data?.[0]?.size || 0;
+        if (legacyUrl && legacySize > 100000) {
           targetUrl = legacyUrl;
           selectedSong = song;
           break;
@@ -86,6 +132,11 @@ export async function downloadWithNetease(title, artist, format = 'mp3') {
     if (!res.ok) return null;
 
     const arrayBuf = await res.arrayBuffer();
+    if (arrayBuf.byteLength < 100000) {
+      // File too small to be a full song
+      return null;
+    }
+
     fs.writeFileSync(rawFile, Buffer.from(arrayBuf));
 
     // Convert to target format via ffmpeg
@@ -106,10 +157,17 @@ export async function downloadWithNetease(title, artist, format = 'mp3') {
       proc.on('error', reject);
     });
 
+    // Verify duration with ffprobe: must be >= 60s
+    const dur = await getAudioDuration(finalFile);
+    if (dur < 60) {
+      try { fs.unlinkSync(finalFile); } catch (_) {}
+      return null;
+    }
+
     return {
       filePath: finalFile,
       title: selectedSong.name,
-      duration: selectedSong.dt || 0
+      duration: dur
     };
   } catch (_) {
     return null;
