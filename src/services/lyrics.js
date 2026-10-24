@@ -129,14 +129,16 @@ export async function getNeteaseLyrics(title, artist) {
   return null;
 }
 
+import { generateBilingualLyrics } from './lyrics_translator.js';
+
 /**
- * Main lyrics searcher: queries Kugou, falls back to Netease
+ * Main lyrics searcher: queries Kugou/Netease, generates bilingual lyrics via Netease/Google
  * @param {string} title
  * @param {string} artist
  * @returns {Promise<{ syncedLyrics: string, plainLyrics: string, source: string }>}
  */
 export async function fetchLyrics(title, artist) {
-  // 1. Try Kugou first (widest catalog + fast + no rate limit)
+  // 1. Try Kugou first
   let lrc = await getKugouLyrics(title, artist);
   let source = 'kugou';
 
@@ -145,6 +147,18 @@ export async function fetchLyrics(title, artist) {
     lrc = await getNeteaseLyrics(title, artist);
     source = 'netease';
   }
+
+  // 3. Process into bilingual lyrics (NetEase translation -> Google Translate fallback)
+  try {
+    const bilingualRes = await generateBilingualLyrics(title, artist, lrc || '');
+    if (bilingualRes.bilingualLrc) {
+      return {
+        syncedLyrics: bilingualRes.bilingualLrc,
+        plainLyrics: bilingualRes.plainLyrics,
+        source: bilingualRes.source
+      };
+    }
+  } catch (_) {}
 
   if (!lrc) {
     return {

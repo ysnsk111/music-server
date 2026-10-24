@@ -256,6 +256,15 @@ program
     }
   });
 
+// Subcommand: translate
+program
+  .command('translate')
+  .alias('translate-lyrics')
+  .description('Batch convert existing lyrics in music library to bilingual (NetEase -> Google fallback)')
+  .action(async () => {
+    await import('../src/scripts/upgrade_bilingual_lyrics.js');
+  });
+
 // If no arguments passed, launch interactive menu
 if (process.argv.length <= 2) {
   launchInteractive().catch((err) => {
